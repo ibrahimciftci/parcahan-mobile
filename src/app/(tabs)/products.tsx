@@ -4,8 +4,10 @@ import {
     Alert,
     FlatList,
     Image,
+    Modal,
     Pressable,
     RefreshControl,
+    ScrollView,
     Text,
     TextInput,
     View,
@@ -19,7 +21,7 @@ import {useSession} from '@/context/session';
 
 const navy = '#101D35', orange = '#F58220';
 export default function Products() {
-    const [items, setItems] = useState<Catalog[]>([]), [page, setPage] = useState(0), [last, setLast] = useState(false), [busy, setBusy] = useState(false), [refreshing, setRefreshing] = useState(false), [error, setError] = useState(''), [search, setSearch] = useState(''), [categories, setCategories] = useState<string[]>([]), [brands, setBrands] = useState<string[]>([]), [types, setTypes] = useState<VehicleType[]>([]), [vbrands, setVBrands] = useState<VehicleBrand[]>([]), [models, setModels] = useState<VehicleModel[]>([]), [cat, setCat] = useState(''), [brand, setBrand] = useState(''), [typeId, setTypeId] = useState(''), [vehicleBrandId, setVehicleBrandId] = useState(''), [vehicleModelId, setVehicleModelId] = useState('');
+    const [items, setItems] = useState<Catalog[]>([]), [page, setPage] = useState(0), [last, setLast] = useState(false), [busy, setBusy] = useState(false), [refreshing, setRefreshing] = useState(false), [error, setError] = useState(''), [filterError, setFilterError] = useState(''), [filtersLoading, setFiltersLoading] = useState(true), [search, setSearch] = useState(''), [categories, setCategories] = useState<string[]>([]), [brands, setBrands] = useState<string[]>([]), [types, setTypes] = useState<VehicleType[]>([]), [vbrands, setVBrands] = useState<VehicleBrand[]>([]), [models, setModels] = useState<VehicleModel[]>([]), [cat, setCat] = useState(''), [brand, setBrand] = useState(''), [typeId, setTypeId] = useState(''), [vehicleBrandId, setVehicleBrandId] = useState(''), [vehicleModelId, setVehicleModelId] = useState('');
     const {user} = useSession();
     const [favoriteIds, setFavoriteIds] = useState<number[]>([]);
     const loadingRef = useRef(false);
@@ -70,26 +72,27 @@ export default function Products() {
         setFavoriteIds([]);
     }, [user?.id]);
     useEffect(() => {
-        marketplace.categories().then(setCategories).catch(() => {
-        });
-        marketplace.brands().then(setBrands).catch(() => {
-        });
-        marketplace.vehicleTypes().then(setTypes).catch(() => {
-        });
+        let active = true;
+        Promise.all([marketplace.categories(), marketplace.brands(), marketplace.vehicleTypes()]).then(([c, b, t]) => {
+            if (active) { setCategories(c); setBrands(b); setTypes(t); setFilterError('') }
+        }).catch(e => { if (active) setFilterError(e instanceof ApiError ? e.message : 'Filtre seçenekleri yüklenemedi.') }).finally(() => { if (active) setFiltersLoading(false) });
+        return () => { active = false }
     }, []);
     useEffect(() => {
+        let active = true;
         setVBrands([]);
         setModels([]);
         setVehicleBrandId('');
         setVehicleModelId('');
-        if (typeId) marketplace.vehicleBrands(Number(typeId)).then(setVBrands).catch(() => {
-        })
+        if (typeId) marketplace.vehicleBrands(Number(typeId)).then(value => { if (active) setVBrands(value) }).catch(e => { if (active) setFilterError(e instanceof ApiError ? e.message : 'Araç markaları yüklenemedi.') });
+        return () => { active = false }
     }, [typeId]);
     useEffect(() => {
+        let active = true;
         setModels([]);
         setVehicleModelId('');
-        if (vehicleBrandId) marketplace.vehicleModels(Number(vehicleBrandId), typeId ? Number(typeId) : undefined).then(setModels).catch(() => {
-        })
+        if (vehicleBrandId) marketplace.vehicleModels(Number(vehicleBrandId), typeId ? Number(typeId) : undefined).then(value => { if (active) setModels(value) }).catch(e => { if (active) setFilterError(e instanceof ApiError ? e.message : 'Araç modelleri yüklenemedi.') });
+        return () => { active = false }
     }, [vehicleBrandId, typeId]);
     useEffect(() => {
         const t = setTimeout(() => {
@@ -165,7 +168,7 @@ export default function Products() {
                                                                       value={vehicleModelId} set={setVehicleModelId}
                                                                       values={models.map(x => x.name)}
                                                                       ids={models.map(x => String(x.id))}
-                                                                      prompt="Araç modeli" disabled={!vehicleBrandId}/></View><Pressable
+                                                                      prompt="Araç modeli" disabled={!vehicleBrandId}/></View>{filtersLoading ? <Text style={s.info}>Filtre seçenekleri yükleniyor…</Text> : null}{filterError ? <Text style={s.info}>{filterError}</Text> : null}<Pressable
                                                                       onPress={clear}><Text style={s.clear}>Filtreleri
                                                                       temizle</Text></Pressable></View>}
                                                                   ListEmptyComponent={<View>{busy ?
@@ -195,11 +198,10 @@ function Select({value, set, values, ids, prompt, disabled}: {
     prompt: string;
     disabled?: boolean
 }) {
-    return <View style={s.select}><Text style={s.selectPrompt}>{prompt}</Text><View
-        style={s.chips}>{values.slice(0, 5).map((v, i) => <Pressable disabled={disabled} key={`${v}-${i}`}
-                                                                     onPress={() => set((ids || values)[i])}><Text
-        style={[s.chip, value === (ids || values)[i] && s.selected]}>{v}</Text></Pressable>)}{values.length === 0 &&
-        <Text style={s.dim}>{disabled ? 'Önce seçim yapın' : 'Seçenek yok'}</Text>}</View></View>
+    const [visible,setVisible]=useState(false);
+    const selectedIndex=(ids||values).indexOf(value);
+    const selectedLabel=selectedIndex>=0?values[selectedIndex]:'';
+    return <View style={s.select}><Text style={s.selectPrompt}>{prompt}</Text><Pressable accessibilityRole="button" accessibilityLabel={`${prompt}: ${selectedLabel||'Tümü'}`} disabled={disabled} style={s.dropdown} onPress={()=>setVisible(true)}><Text numberOfLines={1} style={s.dropdownText}>{selectedLabel||'Tümü'}</Text><Text style={s.dropdownArrow}>⌄</Text></Pressable><Modal visible={visible} transparent animationType="slide" onRequestClose={()=>setVisible(false)}><View style={s.modalBackdrop}><View style={s.modalSheet}><Text style={s.modalTitle}>{prompt}</Text><ScrollView keyboardShouldPersistTaps="handled"><Pressable style={s.option} onPress={()=>{set('');setVisible(false)}}><Text style={s.optionText}>Tümü</Text></Pressable>{values.length === 0 ? <Text style={s.emptyOptions}>Seçenek bulunamadı.</Text> : values.map((label,index)=><Pressable key={`${label}-${index}`} style={s.option} onPress={()=>{set((ids||values)[index]);setVisible(false)}}><Text style={s.optionText}>{label}</Text></Pressable>)}</ScrollView><Pressable style={s.modalClose} onPress={()=>setVisible(false)}><Text style={s.modalCloseText}>Kapat</Text></Pressable></View></View></Modal></View>
 }
 
 const s = StyleSheet.create({
@@ -217,7 +219,14 @@ const s = StyleSheet.create({
     filters: {gap: 7},
     select: {backgroundColor: '#fff', padding: 9, borderRadius: 10},
     selectPrompt: {fontSize: 11, color: '#687386', fontWeight: '700'},
-    chips: {flexDirection: 'row', flexWrap: 'wrap', gap: 5, marginTop: 5},
+    dropdown: {marginTop: 6, minHeight: 44, backgroundColor: '#fff', borderWidth: 1, borderColor: '#D8DFEA', borderRadius: 10, paddingHorizontal: 12, flexDirection: 'row', alignItems: 'center', gap: 8},
+    dropdownText: {flex: 1, color: navy, fontSize: 14}, dropdownArrow: {color: orange, fontSize: 20},
+    modalBackdrop: {flex: 1, backgroundColor: 'rgba(16,29,53,0.42)', justifyContent: 'flex-end'},
+    modalSheet: {maxHeight: '78%', backgroundColor: '#fff', borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 18, paddingBottom: 28},
+    modalTitle: {fontSize: 18, fontWeight: '800', color: navy, marginBottom: 10},
+    option: {minHeight: 48, justifyContent: 'center', borderBottomWidth: 1, borderBottomColor: '#EDF0F5'},
+    optionText: {color: navy, fontSize: 15}, modalClose: {alignItems: 'center', padding: 12}, modalCloseText: {color: orange, fontWeight: '800'},
+    emptyOptions: {color: '#667085', textAlign: 'center', padding: 18},
     chip: {
         fontSize: 12,
         color: navy,

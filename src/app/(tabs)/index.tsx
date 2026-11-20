@@ -1,12 +1,25 @@
-import {ScrollView, View, Text, TextInput, Pressable, StyleSheet, Image} from 'react-native';
+import {useEffect, useState} from 'react';
+import {ScrollView, View, Text, TextInput, Pressable, StyleSheet, Image, ActivityIndicator} from 'react-native';
 import {SafeAreaView} from 'react-native-safe-area-context';
+import {router} from 'expo-router';
+import {marketplace, Catalog, PublicSeller} from '@/services/marketplace';
+import {assetUrl} from '@/services/api';
 
 const navy = '#101D35';
 const orange = '#F58220';
 const categories = ['Motor', 'Fren', 'Filtre', 'Elektrik', 'Kaporta'];
-const products = ['Fren balata seti', 'Yağ filtresi', 'Motor takozu'];
 
 export default function HomeScreen() {
+    const [products, setProducts] = useState<Catalog[]>([]);
+    const [sellers, setSellers] = useState<PublicSeller[]>([]);
+    const [loadingProducts, setLoadingProducts] = useState(true);
+    const [loadingSellers, setLoadingSellers] = useState(true);
+    const [productError, setProductError] = useState('');
+    const [sellerError, setSellerError] = useState('');
+    useEffect(() => {
+        marketplace.catalog({}, 0).then(page => setProducts(page.content.slice(0, 4))).catch(e => {setProducts([]);setProductError(e instanceof Error?e.message:'Ürünler yüklenemedi.')}).finally(() => setLoadingProducts(false));
+        marketplace.sellers(0).then(page => setSellers(page.content.slice(0, 4))).catch(e => {setSellers([]);setSellerError(e instanceof Error?e.message:'Satıcılar yüklenemedi.')}).finally(() => setLoadingSellers(false));
+    }, []);
     return <SafeAreaView style={s.safe} edges={['top']}><ScrollView contentContainerStyle={s.page}>
         <View style={s.header}><Image source={require('@/assets/images/parcahan-emblem.png')} style={s.emblem}
                                       resizeMode="contain" accessibilityLabel="ParçaHan amblemi"/><View
@@ -15,7 +28,7 @@ export default function HomeScreen() {
             parçada doğru adres</Text></View></View>
         <TextInput placeholder="Ürün, marka veya araç ara" placeholderTextColor="#778196" style={s.search}/>
         <View style={s.hero}><Text style={s.heroTitle}>Aradığın parça burada</Text><Text style={s.heroText}>İhtiyacın
-            olan yedek parçayı keşfet.</Text><Pressable style={s.button}><Text style={s.buttonText}>Ürünleri keşfet
+            olan yedek parçayı keşfet.</Text><Pressable style={s.button} accessibilityRole="button" onPress={() => router.navigate('/products')}><Text style={s.buttonText}>Ürünleri keşfet
             ›</Text></Pressable></View>
         <View style={s.row}><Text style={s.heading}>Kategoriler</Text><Text style={s.more}>Tümünü gör</Text></View>
         <ScrollView horizontal showsHorizontalScrollIndicator={false}
@@ -23,15 +36,10 @@ export default function HomeScreen() {
                                                                                          style={s.category}><Text
             style={s.catIcon}>{['⚙', '◉', '▤', 'ϟ', '▱'][i]}</Text><Text
             style={s.catText}>{x}</Text></View>)}</ScrollView>
-        <View style={s.row}><Text style={s.heading}>Öne çıkanlar</Text><Text style={s.more}>Tüm ürünler</Text></View>
-        {products.map((x, i) => <View style={s.product} key={x}><View style={s.productImage}><Text
-            style={{fontSize: 30}}>{['◉', '▤', '⚙'][i]}</Text></View><View style={{flex: 1}}><Text
-            style={s.productName}>{x}</Text><Text style={s.muted}>Örnek ürün
-            · {['Fren sistemi', 'Filtreler', 'Motor'][i]}</Text><Text style={s.price}>₺ 850,00</Text></View><Text
-            style={s.heart}>♡</Text></View>)}
-        <View style={s.sellers}><Text style={s.heading}>Satıcıları keşfet</Text><Text style={s.muted}>Güvenilir
-            satıcılardan yedek parçaları incele.</Text></View>
-        <Text style={s.note}>Örnek arayüz · Ürün bilgileri temsilidir.</Text>
+        <View style={s.row}><Text style={s.heading}>Öne çıkanlar</Text><Pressable onPress={() => router.navigate('/products')}><Text style={s.more}>Tüm ürünler</Text></Pressable></View>
+        {loadingProducts ? <ActivityIndicator color={orange}/> : products.length ? products.map(item => {const offer=item.offers?.filter(o=>o.active).sort((a,b)=>a.price-b.price)[0];const photo=offer?.photos?.find(p=>p.primaryPhoto)?.url||offer?.photos?.[0]?.url||offer?.legacyImageUrl;return <Pressable accessibilityRole="button" style={s.product} key={item.id} onPress={()=>router.push({pathname:'/catalog/[id]',params:{id:String(item.id)}})}><Image source={photo?{uri:assetUrl(photo)||undefined}:undefined} style={s.productImage}/><View style={{flex:1,minWidth:0}}><Text numberOfLines={2} style={s.productName}>{item.name}</Text><Text numberOfLines={1} style={s.muted}>{item.brand} · {item.category}</Text><Text style={s.price}>{offer?`${offer.price.toLocaleString('tr-TR')} ₺`:'Teklif bulunamadı'}</Text></View></Pressable>}) : <Text style={s.muted}>{productError||'Şu anda öne çıkan ürün yok.'}</Text>}
+        <View style={s.row}><Text style={s.heading}>Satıcıları keşfet</Text><Pressable onPress={()=>router.push('/sellers')}><Text style={s.more}>Tüm satıcılar</Text></Pressable></View><Text style={s.muted}>Güvenilir satıcılardan yedek parçaları incele.</Text>
+        {loadingSellers?<ActivityIndicator color={orange}/>:sellers.length?sellers.map(seller=><Pressable accessibilityRole="button" key={seller.id} style={s.sellers} onPress={()=>router.push({pathname:'/seller/[id]',params:{id:String(seller.id)}})}><Text style={s.heading}>{seller.storeName}</Text><Text style={s.muted}>{[seller.city,seller.district].filter(Boolean).join(' · ')||'Konum bilgisi yok'} · {seller.offerCount} ilan</Text></Pressable>):<Text style={s.muted}>{sellerError||'Henüz görüntülenebilir satıcı yok.'}</Text>}
     </ScrollView></SafeAreaView>;
 }
 const s = StyleSheet.create({
